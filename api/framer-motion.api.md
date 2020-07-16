@@ -322,6 +322,8 @@ export type KeyframesTarget = ResolvedKeyframesTarget | [null, ...CustomValueTyp
 export interface LayoutProps {
     layout?: boolean;
     layoutId?: string;
+    layoutX?: MotionValue<number>;
+    layoutY?: MotionValue<number>;
     onLayoutAnimationComplete?(): void;
     onViewportBoxUpdate?(box: AxisBox2D, delta: BoxDelta): void;
 }

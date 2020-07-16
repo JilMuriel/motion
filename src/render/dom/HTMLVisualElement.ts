@@ -111,6 +111,10 @@ export class HTMLVisualElement<
 
     updateConfig(config: DOMVisualElementConfig = {}) {
         this.config = { ...this.defaultConfig, ...config }
+
+        const { layoutX, layoutY, onViewportBoxUpdate } = this.config
+        if (layoutX || layoutY || onViewportBoxUpdate)
+            this.deltaViewport = delta()
     }
 
     /**
@@ -248,24 +252,27 @@ export class HTMLVisualElement<
     deltaFinal: BoxDelta = delta()
 
     /**
-     *
+     * The delta between the box (not corrected for transforms) and the targetBox.
+     * We only calculate this if the user has provided layoutX or layoutY props.
+     * As an outward-facing API, the deltas we calculate are pretty useless because they're
+     * based on all the transforms that have been applied up through the tree.
+     * So this is used to provide a saner, viewport-relative delta.
      */
-    stopLayoutAxisAnimation = {
-        x: () => {},
-        y: () => {},
-    }
+    deltaViewport: BoxDelta
 
     isVisible?: boolean
 
     hide() {
-        if (this.isVisible === false) return
-        this.isVisible = false
-        this.scheduleRender()
+        this.setVisibility(false)
     }
 
     show() {
-        if (this.isVisible === true) return
-        this.isVisible = true
+        this.setVisibility(true)
+    }
+
+    setVisibility(visibility: boolean) {
+        if (this.isVisible === visibility) return
+        this.isVisible = visibility
         this.scheduleRender()
     }
 
@@ -427,7 +434,7 @@ export class HTMLVisualElement<
      * Update the layout deltas to reflect the relative positions of the layout
      * and the desired target box
      */
-    updateLayoutDeltas(isReactRender: boolean) {
+    updateLayoutDeltas() {
         /**
          * Ensure that all the parent deltas are up-to-date before calculating this delta.
          *
@@ -436,9 +443,7 @@ export class HTMLVisualElement<
          * We can optimise this by replacing this to a call directly to the root VisualElement
          * which then runs iteration from the top-down, but only once per framestamp.
          */
-        this.treePath.forEach((p: HTMLVisualElement) =>
-            p.updateLayoutDeltas(isReactRender)
-        )
+        this.treePath.forEach((p: HTMLVisualElement) => p.updateLayoutDeltas())
 
         /**
          * Early return if layout reprojection isn't enabled
@@ -482,16 +487,37 @@ export class HTMLVisualElement<
          * into the desired bounding box.
          */
         updateBoxDelta(this.deltaFinal, this.boxCorrected, this.targetBoxFinal)
+    }
+
+    /**
+     * Update user-set layout listeners with the latest calculated layout
+     */
+    notifyLayoutListeners() {
+        /**
+         * If the viewport box hasn't updated, early return
+         */
+        if (!this.hasViewportBoxUpdated) return
+        this.hasViewportBoxUpdated = false
+
+        const { layoutX, layoutY, onViewportBoxUpdate } = this.config
 
         /**
-         * If we have a listener for the viewport box, fire it.
-         * TODO: Instead of manually checking this, use framesync postRender
+         * If the user hasn't set any listeners, early return
          */
-        if (!isReactRender) {
-            this.hasViewportBoxUpdated &&
-                this.config.onViewportBoxUpdate?.(this.targetBox, this.delta)
-            this.hasViewportBoxUpdated = false
-        }
+        if (!(layoutX || layoutY || onViewportBoxUpdate)) return
+
+        /**
+         * The viewport-relative delta isn't used to apply transforms to the actual
+         * element but it's the most relevent delta for the user. So we only updated it
+         * if they're actively listening to it.
+         */
+        updateBoxDelta(this.deltaViewport, this.box, this.targetBox)
+
+        onViewportBoxUpdate?.(this.targetBox, this.deltaViewport)
+
+        const { x, y } = this.deltaViewport
+        layoutX?.set(x.translate)
+        layoutY?.set(y.translate)
     }
 
     /**
@@ -508,9 +534,12 @@ export class HTMLVisualElement<
             this.style.visibility = this.isVisible ? "visible" : "hidden"
         }
 
-        this.isLayoutProjectionEnabled &&
-            this.box &&
-            this.updateLayoutDeltas(isReactRender)
+        this.isLayoutProjectionEnabled && this.box && this.updateLayoutDeltas()
+
+        /**
+         * If this isn't a React render, inform any listeners of the latest deltas
+         */
+        !isReactRender && this.notifyLayoutListeners()
 
         buildHTMLStyles(
             this.latest,

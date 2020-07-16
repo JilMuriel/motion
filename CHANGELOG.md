@@ -2,6 +2,16 @@
 
 Framer Motion adheres to [Semantic Versioning](http://semver.org/).
 
+## [2.0.2] 2020-07-16
+
+### Added
+
+-   Added `layoutX` and `layoutY` readonly MotionValue props for hooking other MotionValues into the layout calculations.
+
+### Fixed
+
+-   Fixed `originX` and `originY` being used incorrectly in bounding box measurements for layout children.
+
 ## [2.0.1] 2020-07-16
 
 ### Fixed
